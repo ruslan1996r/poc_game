@@ -25,7 +25,7 @@ struct Packet {
 struct AckPacket {
   uint32_t sessionId;
   uint32_t firstPacketId;
-  std::bitset<WINDOW_SIZE> receivedMask;
+  std::bitset<WINDOW_SIZE> receivedMask; // По умолчанию все биты = 0
 };
 
 int main() {
@@ -36,7 +36,7 @@ int main() {
 
   std::unordered_map<uint32_t, std::unordered_set<uint32_t>> receivedIds;
   std::unordered_map<uint32_t, uint32_t> lastAckedId;
-  std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> lastPacketTime;
+  std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> lastPacketTime; // Устанавливается во время старта тика
   std::unordered_map<uint32_t, bool> newPacketReceived;
 
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -62,14 +62,15 @@ int main() {
   while (true) {
     auto tickStart = std::chrono::steady_clock::now();
 
+    // Поллинг сообщений с клиента
     int pollResult = poll(&pfd, 1, 0);
     if (pollResult > 0 && (pfd.revents & POLLIN)) {
       ssize_t received = recvfrom(sockfd, &packet, sizeof(packet), 0, (sockaddr *)&clientAddr, &clientLen);
       if (received > 0) {
         uint32_t sid = packet.sessionId;
         receivedIds[sid].insert(packet.id);
-        if (lastAckedId.find(sid) == lastAckedId.end()) {
-          lastAckedId[sid] = 0;
+        if (lastAckedId.find(sid) == lastAckedId.end()) { // .end() - итератор, проходит до конца map
+          lastAckedId[sid] = 0; // ключ не найден → клиент ещё не известен серверу
         }
 
         lastPacketTime[sid] = tickStart;
@@ -79,6 +80,7 @@ int main() {
       }
     }
 
+    // Отвечает за Barch ACK
     auto now = std::chrono::steady_clock::now();
     for (auto &[sid, ids] : receivedIds) {
       auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastPacketTime[sid]).count();
